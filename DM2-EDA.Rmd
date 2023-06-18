@@ -1,0 +1,53 @@
+---
+title: "DM2-EDA"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(readr)
+#read dataset
+data <- read_csv("training_v2.csv/training_v2.csv")
+dim(data)
+```
+
+```{r}
+#remove the id columns from dataset
+data$encounter_id <- NULL
+data$hospital_id <- NULL
+data$patient_id <- NULL
+#drop variables which has null values more than 15%
+data <- data[, which(colMeans(is.na(data)) < 0.15)]
+dim(data)
+```
+
+```{r}
+#data type of each variable
+str(data)
+```
+
+```{r}
+#summary of dataset
+summary(data)
+```
+
+```{r}
+library("dplyr")
+#generate correlation plot
+#data.numeric <- data[,unlist(lapply(data, is.numeric))]
+cor.matrix <- cor(data.numeric[1:10], use = "complete.obs")
+data <- round(cor.matrix, digits=4)
+print(data)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
