@@ -4,23 +4,13 @@ output: html_document
 date: "`r Sys.Date()`"
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
 ```{r}
 library(readr)
 #read dataset
-data <- read_csv("training_v2.csv/training_v2.csv")
+data <- read_csv("dataset/training_v2.csv/training_v2.csv")
 dim(data)
 ```
-
+## Data Preparation/Cleaning
 ```{r}
 #remove the id columns from dataset
 data$encounter_id <- NULL
@@ -32,13 +22,54 @@ dim(data)
 ```
 
 ```{r}
-#data type of each variable
-str(data)
+#summary of dataset
+summary(data)
 ```
 
 ```{r}
-#summary of dataset
+#Factoring
+data$ethnicity = as.factor(data$ethnicity)
+data$icu_admit_source = as.factor(data$icu_admit_source)
+data$gender = as.factor(data$gender)
+data$icu_stay_type = as.factor(data$icu_stay_type)
+data$apache_2_bodysystem = as.factor(data$apache_2_bodysystem)
+data$apache_3j_bodysystem = as.factor(data$apache_3j_bodysystem)
 summary(data)
+```
+
+```{r}
+print(unique(data$ethnicity))
+print(unique(data$icu_admit_source))
+print(unique(data$gender))
+print(unique(data$icu_stay_type))
+print(unique(data$apache_2_bodysystem))
+print(unique(data$apache_3j_bodysystem))
+```
+
+```{r}
+#Replacing duplicate duplicate factor label with one
+data$apache_2_bodysystem[data$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+```
+
+```{r}
+# Save the names of the factor variables as a vector
+# Relevel
+vars.ethnicities <- c("Caucasian", "Hispanic", "African", "American", "Asian", "Native American", "Other/Unknown")
+vars.genders <- c("M","F")
+vars.icu_admit_source <- c("Floor","Accident & Emergency","Operating Room / Recovery","Other Hospital","Other ICU")
+vars.icu_stay_types <- c("admit","readmit","transfer")
+vars.apache_2_bodysystems <- c("Cardiovascular","Respiratory","Metabolic","Trauma","Neurologic","Gastrointestinal","Renal/Genitourinary","Undefined Diagnoses")
+vars.apache_3j_bodysystem <- c("Sepsis","Respiratory","Metabolic","Cardiovascular","Trauma","Neurological","Gastrointestinal","Genitourinary","Hematological","Musculoskeletal/Skin Neurological")
+
+relevel <- function(combination){
+  for (i in combination){
+    table <- as.data.frame(table(data[, i]))
+    max <- which.max(table[, 2])
+    level.name <- as.character(table[max, 1])
+    data[, i] <- relevel(data[, i], ref = level.name)
+  }
+}
+
 ```
 
 ```{r}
