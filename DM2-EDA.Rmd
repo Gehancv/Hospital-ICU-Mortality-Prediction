@@ -10,7 +10,8 @@ library(readr)
 data <- read_csv("dataset/training_v2.csv/training_v2.csv")
 dim(data)
 ```
-## Data Preparation/Cleaning
+
+#Data Preparation/Cleaning
 ```{r}
 #remove the id columns from dataset
 data$encounter_id <- NULL
@@ -27,49 +28,64 @@ summary(data)
 ```
 
 ```{r}
+#Combining categories with less than 5% observations into one
+data$ethnicity[data$ethnicity == "Native American" | data$ethnicity== "Asian" | data$ethnicity == "Hispanic"] <- "Other/Unknown"
+data$icu_admit_source[data$icu_admit_source == "Other Hospital" | data$icu_admit_source == "Other ICU"] <- "other"
+#Replacing duplicate factor label with one single label
+data$apache_2_bodysystem[data$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+
 #Factoring
 data$ethnicity = as.factor(data$ethnicity)
 data$icu_admit_source = as.factor(data$icu_admit_source)
 data$gender = as.factor(data$gender)
 data$icu_stay_type = as.factor(data$icu_stay_type)
 data$apache_2_bodysystem = as.factor(data$apache_2_bodysystem)
+data$icu_type = as.factor(data$icu_type)
 data$apache_3j_bodysystem = as.factor(data$apache_3j_bodysystem)
 summary(data)
 ```
 
 ```{r}
-print(unique(data$ethnicity))
-print(unique(data$icu_admit_source))
-print(unique(data$gender))
-print(unique(data$icu_stay_type))
-print(unique(data$apache_2_bodysystem))
-print(unique(data$apache_3j_bodysystem))
+#Manul binarization
+library(caret)
+vars.categorical <- c("ethnicity","icu_admit_source","gender","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
+binarizer <- dummyVars(paste("~", paste(vars.categorical, collapse = "+")),
+                        data = data_new, fullRank = TRUE)
+binarized_vars <- data.frame(predict(binarizer, newdata = data_new))
+data_new <- cbind(data_new, binarized_vars)
+data_new$ethnicity <- NULL
+data_new$icu_admit_source <- NULL
+data_new$gender <- NULL
+data_new$icu_stay_type <- NULL
+data_new$apache_2_bodysystem <- NULL
+data_new$apache_3j_bodysystem <- NULL
+summary(data_new)
 ```
 
 ```{r}
-#Replacing duplicate duplicate factor label with one
-data$apache_2_bodysystem[data$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
-```
+#Save the names of the factor variables as a vector
+#Relevel
+vars.cat <- c("ethnicity","icu_admit_source","gender","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
 
-```{r}
-# Save the names of the factor variables as a vector
-# Relevel
-vars.ethnicities <- c("Caucasian", "Hispanic", "African", "American", "Asian", "Native American", "Other/Unknown")
-vars.genders <- c("M","F")
-vars.icu_admit_source <- c("Floor","Accident & Emergency","Operating Room / Recovery","Other Hospital","Other ICU")
-vars.icu_stay_types <- c("admit","readmit","transfer")
-vars.apache_2_bodysystems <- c("Cardiovascular","Respiratory","Metabolic","Trauma","Neurologic","Gastrointestinal","Renal/Genitourinary","Undefined Diagnoses")
-vars.apache_3j_bodysystem <- c("Sepsis","Respiratory","Metabolic","Cardiovascular","Trauma","Neurological","Gastrointestinal","Genitourinary","Hematological","Musculoskeletal/Skin Neurological")
-
-relevel <- function(combination){
-  for (i in combination){
-    table <- as.data.frame(table(data[, i]))
-    max <- which.max(table[, 2])
-    level.name <- as.character(table[max, 1])
-    data[, i] <- relevel(data[, i], ref = level.name)
-  }
+for (i in vars.cat){
+  table <- as.data.frame(table(data[, i]))
+  max <- which.max(table[, 2])
+  level.name <- as.character(table[max, 1])
+  data[, i] <- relevel(data[, i], ref = level.name)
 }
+```
 
+```{r}
+library(glmnet)
+#Applying regularization for feature selection
+X.train <- subset(data_new, select=-hospital_death)
+m.lambda <- glmnet(x = X.train,
+                   y = data_new$hospital_death,
+                   family = "binomial",
+                   nfold=10,
+                   lambda = 1:20,
+                   alpha=1)
+print(m.lambda)
 ```
 
 ```{r}
