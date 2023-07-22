@@ -5,6 +5,7 @@ date: "`r Sys.Date()`"
 ---
 
 ```{r}
+rm(list = ls())
 library(readr)
 #read dataset
 data <- read_csv("dataset/training_v2.csv/training_v2.csv")
@@ -17,6 +18,7 @@ dim(data)
 data$encounter_id <- NULL
 data$hospital_id <- NULL
 data$patient_id <- NULL
+data$icu_id <- NULL
 #drop variables which has null values more than 15%
 data <- data[, which(colMeans(is.na(data)) < 0.15)]
 dim(data)
@@ -25,76 +27,196 @@ dim(data)
 ```{r}
 #summary of dataset
 summary(data)
+#remove because the variable only has a constant value of 0
+data$gcs_unable_apache <- NULL
+data$readmission_status <- NULL
+```
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(hospital_death)) + 
+  geom_histogram()
+```
+
+```{r}
+#Remove rows with NA's
+data_new <- na.omit(data)
+print(dim(data_new))
+summary(data_new)
 ```
 
 ```{r}
 #Combining categories with less than 5% observations into one
-data$ethnicity[data$ethnicity == "Native American" | data$ethnicity== "Asian" | data$ethnicity == "Hispanic"] <- "Other/Unknown"
-data$icu_admit_source[data$icu_admit_source == "Other Hospital" | data$icu_admit_source == "Other ICU"] <- "other"
+data_new$ethnicity[data_new$ethnicity == "Native American" | data_new$ethnicity== "Asian" | data_new$ethnicity == "Hispanic"] <- "Other/Unknown"
+#data_new$icu_admit_source[data_new$icu_admit_source == "Other Hospital" | data_new$icu_admit_source == "Other ICU"] <- "other"
 #Replacing duplicate factor label with one single label
-data$apache_2_bodysystem[data$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+data_new$apache_2_bodysystem[data_new$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
 
 #Factoring
-data$ethnicity = as.factor(data$ethnicity)
-data$icu_admit_source = as.factor(data$icu_admit_source)
-data$gender = as.factor(data$gender)
-data$icu_stay_type = as.factor(data$icu_stay_type)
-data$apache_2_bodysystem = as.factor(data$apache_2_bodysystem)
-data$icu_type = as.factor(data$icu_type)
-data$apache_3j_bodysystem = as.factor(data$apache_3j_bodysystem)
-summary(data)
-```
-
-```{r}
-#Manul binarization
-library(caret)
-vars.categorical <- c("ethnicity","icu_admit_source","gender","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
-binarizer <- dummyVars(paste("~", paste(vars.categorical, collapse = "+")),
-                        data = data_new, fullRank = TRUE)
-binarized_vars <- data.frame(predict(binarizer, newdata = data_new))
-data_new <- cbind(data_new, binarized_vars)
-data_new$ethnicity <- NULL
-data_new$icu_admit_source <- NULL
-data_new$gender <- NULL
-data_new$icu_stay_type <- NULL
-data_new$apache_2_bodysystem <- NULL
-data_new$apache_3j_bodysystem <- NULL
+data_new$ethnicity = as.factor(data_new$ethnicity)
+data_new$icu_admit_source = as.factor(data_new$icu_admit_source)
+data_new$gender = as.factor(data_new$gender)
+data_new$icu_stay_type = as.factor(data_new$icu_stay_type)
+data_new$apache_2_bodysystem = as.factor(data_new$apache_2_bodysystem)
+data_new$icu_type = as.factor(data_new$icu_type)
+data_new$apache_3j_bodysystem = as.factor(data_new$apache_3j_bodysystem)
+#data_new$hospital_death = as.factor(data_new$hospital_death)
 summary(data_new)
 ```
 
 ```{r}
 #Save the names of the factor variables as a vector
 #Relevel
-vars.cat <- c("ethnicity","icu_admit_source","gender","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
+# vars.cat <- c("ethnicity","gender","icu_type","icu_stay_type", "apache_2_bodysystem","apache_3j_bodysystem")
+# 
+# for (i in vars.cat){
+#     table <- as.data.frame(table(data_new[, i]))
+#     max <- which.max(table[, 2])
+#     level.name <- as.character(table[max, 1])
+#     print(level.name)
+#     data_new[, i] <- relevel(data_new[, i], ref = level.name)
+# }
+```
 
-for (i in vars.cat){
-  table <- as.data.frame(table(data[, i]))
-  max <- which.max(table[, 2])
-  level.name <- as.character(table[max, 1])
-  data[, i] <- relevel(data[, i], ref = level.name)
-}
+#Perform oversampling to balance the dataset 
+```{r}
+#install.packages("ROSE")
+library(ROSE)
+
+data_balanced <- ROSE(hospital_death ~ ., data = data_new, hmult.majo = 0, hmult.mino = 1, seed = 1000)$data
+summary(data_balanced)
 ```
 
 ```{r}
-library(glmnet)
-#Applying regularization for feature selection
-X.train <- subset(data_new, select=-hospital_death)
-m.lambda <- glmnet(x = X.train,
-                   y = data_new$hospital_death,
-                   family = "binomial",
-                   nfold=10,
-                   lambda = 1:20,
-                   alpha=1)
-print(m.lambda)
+#Manul binarization
+library(caret)
+vars.categorical <- c("ethnicity","icu_admit_source","gender","icu_type","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
+binarizer <- dummyVars(paste("~", paste(vars.categorical, collapse = "+")),
+                        data = data_new, fullRank = TRUE)
+binarized_vars <- data.frame(predict(binarizer, newdata = data_balanced))
+data_balanced <- cbind(data_balanced, binarized_vars)
+data_balanced$ethnicity <- NULL
+data_balanced$icu_admit_source <- NULL
+data_balanced$gender <- NULL
+data_balanced$icu_stay_type <- NULL
+data_balanced$icu_type <- NULL
+data_balanced$apache_2_bodysystem <- NULL
+data_balanced$apache_3j_bodysystem <- NULL
+summary(data_balanced)
+```
+
+#PCA
+```{r}
+data_pca <- data_balanced
+data_pca$hospital_death <- NULL
+data_pca <- data_pca[,1:88]
+PCA.scaled <- prcomp(data_pca, center = TRUE, scale = TRUE)
+
+#proportion of variance explained by each principal component
+variance_prop <- PCA.scaled$sdev^2 / sum(PCA.scaled$sdev^2)
+cum_variance_prop <- cumsum(variance_prop)
+num_pcs <- sum(cum_variance_prop <= 0.5)
+PCA.selected <- PCA.scaled$x[,1:num_pcs]
+PCA.selected
+```
+
+```{r}
+data_balanced[2:89] <- NULL
+data_balanced <- cbind(data_balanced, PCA.selected)
+summary(data_balanced)
+```
+
+```{r}
+library(caret)
+set.seed(1000)
+partition <- createDataPartition(data_balanced$hospital_death, p = 0.75, list = FALSE)
+data.train <- data_balanced[partition, ]
+data.test <- data_balanced[-partition, ]
+mean(data.train$hospital_death)
+mean(data.test$hospital_death)
+```
+#Regularization
+```{r}
+#library(glmnet)
+
+# X.train <- model.matrix(hospital_death ~ ., data = data.train)
+# 
+# set.seed(1111)
+# m <- cv.glmnet(x = X.train,
+#               y = data.train$hospital_death,
+#               family = "binomial",
+#               nfold = 10,
+#               #lambda = NULL,
+#               lambda = 1:20,
+#               alpha = 0.5)
+# plot(m)
 ```
 
 ```{r}
 library("dplyr")
 #generate correlation plot
 #data.numeric <- data[,unlist(lapply(data, is.numeric))]
-cor.matrix <- cor(data.numeric[1:10], use = "complete.obs")
-data <- round(cor.matrix, digits=4)
-print(data)
+# cor.matrix <- cor(data.numeric[1:10], use = "complete.obs")
+# data <- round(cor.matrix, digits=4)
+# print(data)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+#Fitting Models
+#GLM Train
+```{r}
+model.logit.full <- glm(hospital_death ~ ., 
+                         data = data.train,
+                         family = binomial(link = "logit"))
+AIC(model.logit.full)
+summary(model.logit.full)
+```
+#GLM Predict
+```{r}
+cutoff <- 0.5
+
+# Generate predicted probabilities on the training set
+predict.logit.train <- predict(model.logit.full, type = "response")
+# Turn predicted probabilities into predicted classes
+class.train <- 1*(predict.logit.train > cutoff) # OR ifelse(pred.train > cutoff, 1, 0)
+confusionMatrix(factor(class.train), factor(data.train$hospital_death), positive = "1")
+
+predict.logit.test <- predict(model.logit.full, newdata = data.test, type = "response")
+class.logit <- 1*(predict.logit.test > cutoff)
+confusionMatrix(factor(class.logit), factor(data.test$hospital_death))
+```
+The training accuracy is slightly higher than the testing accuracy.
+This is an indication of overfitting but not significant. 
+The sensitivity is higher meaning that the model has a higher capability of
+classifying patients who died.This is our parimary objective of this model
+# ROC AUC
+```{r}
+library(pROC)
+roc.logit.train <- roc(data.train$hospital_death, predict.logit.train)
+par(pty = "s")  # This improves the appearance of the roc plot
+plot(roc.logit.train)
+auc(roc.logit.train)
+
+roc.logit.test <- roc(data.test$hospital_death, predict.logit.test)
+plot(roc.logit.test)
+auc(roc.logit.test)
+```
+# Stepwise AIC
+```{r}
+library(MASS)
+model.logit.null <- glm(hospital_death ~ 1,
+                  data = data.train,
+                  family = binomial(link = "logit"))
+# model.logit.reduced <- stepAIC(model.logit.null,
+#                          direction = "backward",
+#                          k = log(nrow(data.train)),
+#                          scope = list(upper = model.logit.full, lower = model.logit.null))
+model.logit.reduced <- stepAIC(model.logit.full)
+summary(model.logit.reduced)
+```
+
+# GLM Reduced 
+```{r}
+predict.logit.reduced <- predict(model.logit.reduced, newdata = data.test, type = "response")
+roc.logit.reduced <- roc(data.test$hospital_death, predict.logit.reduced)
+auc(roc.logit.reduced)
+```
