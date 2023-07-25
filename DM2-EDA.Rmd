@@ -83,7 +83,13 @@ summary(data_new)
 #install.packages("ROSE")
 library(ROSE)
 
-data_balanced <- ROSE(hospital_death ~ ., data = data_new, hmult.majo = 0, hmult.mino = 1, seed = 1000)$data
+#data_balanced <- ROSE(hospital_death ~ ., data = data_new, seed = 1000)$data
+data_balanced <- ovun.sample(hospital_death ~ .,
+                             data = data_new,
+                             N = nrow(data_new),
+                             seed = 1000,
+                             method = "both")$data
+                             
 summary(data_balanced)
 ```
 
@@ -135,6 +141,7 @@ data.test <- data_balanced[-partition, ]
 mean(data.train$hospital_death)
 mean(data.test$hospital_death)
 ```
+
 #Regularization
 ```{r}
 #library(glmnet)
@@ -200,6 +207,7 @@ roc.logit.test <- roc(data.test$hospital_death, predict.logit.test)
 plot(roc.logit.test)
 auc(roc.logit.test)
 ```
+
 # Stepwise AIC
 ```{r}
 library(MASS)
