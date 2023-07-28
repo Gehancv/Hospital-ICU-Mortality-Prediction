@@ -30,6 +30,8 @@ summary(data)
 #remove because the variable only has a constant value of 0
 data$gcs_unable_apache <- NULL
 data$readmission_status <- NULL
+data$apache_4a_hospital_death_prob <- NULL
+data$apache_4a_icu_death_prob <- NULL
 ```
 
 ```{r}
@@ -53,29 +55,23 @@ data_new$ethnicity[data_new$ethnicity == "Native American" | data_new$ethnicity=
 data_new$apache_2_bodysystem[data_new$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
 
 #Factoring
-data_new$ethnicity = as.factor(data_new$ethnicity)
-data_new$icu_admit_source = as.factor(data_new$icu_admit_source)
-data_new$gender = as.factor(data_new$gender)
-data_new$icu_stay_type = as.factor(data_new$icu_stay_type)
-data_new$apache_2_bodysystem = as.factor(data_new$apache_2_bodysystem)
-data_new$icu_type = as.factor(data_new$icu_type)
-data_new$apache_3j_bodysystem = as.factor(data_new$apache_3j_bodysystem)
+data_new$ethnicity <- as.factor(data_new$ethnicity)
+data_new$icu_admit_source <- as.factor(data_new$icu_admit_source)
+data_new$gender <- as.factor(data_new$gender)
+data_new$icu_stay_type <- as.factor(data_new$icu_stay_type)
+data_new$apache_2_bodysystem <- as.factor(data_new$apache_2_bodysystem)
+data_new$icu_type <- as.factor(data_new$icu_type)
+data_new$apache_3j_bodysystem <- as.factor(data_new$apache_3j_bodysystem)
+data_new$leukemia <- as.factor(data_new$leukemia)
+data_new$lyphoma <- as.factor(data_new$lymphoma)
+data_new$cirrhosis <- as.factor(data_new$cirrhosis)
+data_new$diabetes_mellitus <- as.factor(data_new$diabetes_mellitus)
+data_new$hepatic_failure <- as.factor(data_new$hepatic_failure)
+data_new$immunosuppression <- as.factor(data_new$immunosuppression)
+data_new$aids <- as.factor(data_new$aids)
+data_new$arf_apache <- as.factor(data_new$arf_apache)
 #data_new$hospital_death = as.factor(data_new$hospital_death)
 summary(data_new)
-```
-
-```{r}
-#Save the names of the factor variables as a vector
-#Relevel
-# vars.cat <- c("ethnicity","gender","icu_type","icu_stay_type", "apache_2_bodysystem","apache_3j_bodysystem")
-# 
-# for (i in vars.cat){
-#     table <- as.data.frame(table(data_new[, i]))
-#     max <- which.max(table[, 2])
-#     level.name <- as.character(table[max, 1])
-#     print(level.name)
-#     data_new[, i] <- relevel(data_new[, i], ref = level.name)
-# }
 ```
 
 #Perform oversampling to balance the dataset 
@@ -90,6 +86,30 @@ data_balanced <- ovun.sample(hospital_death ~ .,
                              seed = 1000,
                              method = "both")$data
                              
+summary(data_balanced)
+```
+
+#PCA
+```{r}
+library(dplyr)
+data_pca <- data_balanced
+data_pca <- select_if(data_pca, is.numeric)
+data_pca$hospital_death <- NULL
+PCA.scaled <- prcomp(data_pca, center = TRUE, scale = TRUE)
+
+#proportion of variance explained by each principal component
+variance_prop <- PCA.scaled$sdev^2 / sum(PCA.scaled$sdev^2)
+cum_variance_prop <- cumsum(variance_prop)
+num_pcs <- sum(cum_variance_prop <= 0.5)
+PCA.selected <- PCA.scaled$x[,1:num_pcs]
+PCA.selected
+```
+
+```{r}
+hospital_death <- data_balanced$hospital_death
+data_balanced <- select_if(data_balanced, Negate(is.numeric))
+data_balanced <- cbind(data_balanced, hospital_death)
+data_balanced <- cbind(data_balanced, PCA.selected)
 summary(data_balanced)
 ```
 
@@ -108,27 +128,6 @@ data_balanced$icu_stay_type <- NULL
 data_balanced$icu_type <- NULL
 data_balanced$apache_2_bodysystem <- NULL
 data_balanced$apache_3j_bodysystem <- NULL
-summary(data_balanced)
-```
-
-#PCA
-```{r}
-data_pca <- data_balanced
-data_pca$hospital_death <- NULL
-data_pca <- data_pca[,1:88]
-PCA.scaled <- prcomp(data_pca, center = TRUE, scale = TRUE)
-
-#proportion of variance explained by each principal component
-variance_prop <- PCA.scaled$sdev^2 / sum(PCA.scaled$sdev^2)
-cum_variance_prop <- cumsum(variance_prop)
-num_pcs <- sum(cum_variance_prop <= 0.5)
-PCA.selected <- PCA.scaled$x[,1:num_pcs]
-PCA.selected
-```
-
-```{r}
-data_balanced[2:89] <- NULL
-data_balanced <- cbind(data_balanced, PCA.selected)
 summary(data_balanced)
 ```
 
@@ -159,17 +158,10 @@ mean(data.test$hospital_death)
 # plot(m)
 ```
 
-```{r}
-library("dplyr")
-#generate correlation plot
-#data.numeric <- data[,unlist(lapply(data, is.numeric))]
-# cor.matrix <- cor(data.numeric[1:10], use = "complete.obs")
-# data <- round(cor.matrix, digits=4)
-# print(data)
-```
+## Fitting Different models for classifying hospital mortality
 
-#Fitting Models
-#GLM Train
+# GLM
+# GLM Train
 ```{r}
 model.logit.full <- glm(hospital_death ~ ., 
                          data = data.train,
@@ -191,10 +183,10 @@ predict.logit.test <- predict(model.logit.full, newdata = data.test, type = "res
 class.logit <- 1*(predict.logit.test > cutoff)
 confusionMatrix(factor(class.logit), factor(data.test$hospital_death))
 ```
-The training accuracy is slightly higher than the testing accuracy.
-This is an indication of overfitting but not significant. 
-The sensitivity is higher meaning that the model has a higher capability of
-classifying patients who died.This is our parimary objective of this model
+With 0.5 cutoff, training accuracy is 0.7602 and testing accuracy is 0.7681
+The sensitivity is higher than specificity meaning that the model is better 
+at classifying patients who died.This is the primary objective of this model
+
 # ROC AUC
 ```{r}
 library(pROC)
@@ -227,4 +219,86 @@ summary(model.logit.reduced)
 predict.logit.reduced <- predict(model.logit.reduced, newdata = data.test, type = "response")
 roc.logit.reduced <- roc(data.test$hospital_death, predict.logit.reduced)
 auc(roc.logit.reduced)
+```
+
+# Decision Tree
+```{r}
+library(rpart)
+library(rpart,plot)
+
+set.seed(1000)
+
+# method = "class" ensures that target is treated as a categorical variable
+model.tree <- rpart(hospital_death ~ .,
+               data = data.train,
+               method = "class",
+               control = rpart.control(minbucket = 5,
+                                       cp = 0.0005,
+                                       maxdepth = 7),
+               parms = list(split = "gini"))
+
+# Print output for the tree
+model.tree
+
+# Plot the tree
+rpart.plot(model.tree, tweak = 2)
+```
+
+```{r}
+model.tree$cptable
+```
+
+```{r}
+model.tree.pruned <- prune(model.tree, cp = model.tree$cptable[23, "CP"])
+model.tree.pruned
+
+# Plot the tree
+rpart.plot(mode.tree.pruned)
+```
+
+```{r}
+rpart.plot(mode.tree.pruned, type = 0)
+rpart.plot(mode.tree.pruned, digits = 4, extra = 4)
+```
+
+```{r}
+predict.tree.class <- predict(model.tree, newdata = data.test, type = "class")
+predict.tree.reduced.class <- predict(model.tree.pruned, newdata = data.test, type = "class")
+
+confusionMatrix(predict.tree.class, as.factor(data.test$hospital_death), positive = "1")
+confusionMatrix(predict.tree.reduced.class, as.factor(data.test$hospital_death), positive = "1")
+```
+
+# Random forest
+```{r}
+# Set the controls
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5,
+                     repeats = 3)
+
+# Set up the tuning grid
+rf.grid <- expand.grid(mtry = 1:15)
+rf.grid
+```
+
+```{r}
+# Set up the x and y variables
+target <- factor(data.train$wage_flag)
+predictors <- data.train[, -9]
+
+# Train the first random forest
+set.seed(1000)
+model.rf <- train(hospital_death ~ .,
+                  data = data.train,
+                  method = "rf",
+                  ntree = 5,
+                  importance = TRUE,
+                  trControl = ctrl,
+                  tuneGrid = rf.grid)
+```
+
+```{r}
+# View the output
+rf1
+ggplot(rf1)  # OR simply plot(rf1)
 ```
