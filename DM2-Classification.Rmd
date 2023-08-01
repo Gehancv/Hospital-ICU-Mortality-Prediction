@@ -1,0 +1,402 @@
+---
+title: "DM2-EDA"
+output:
+  word_document: default
+  html_document: default
+date: "`r Sys.Date()`"
+---
+
+```{r}
+rm(list = ls())
+library(readr)
+#read dataset
+data <- read_csv("dataset/training_v2.csv/training_v2.csv")
+dim(data)
+```
+
+#Data Preparation/Cleaning
+```{r}
+# Remove the id columns from dataset
+data$encounter_id <- NULL
+data$hospital_id <- NULL
+data$patient_id <- NULL
+data$icu_id <- NULL
+# Drop variables which has null values more than 15%
+data <- data[, which(colMeans(is.na(data)) < 0.15)]
+dim(data)
+```
+
+```{r}
+# Summary of dataset
+summary(data)
+
+# Remove because the variable only has a constant value of 0
+data$gcs_unable_apache <- NULL
+data$readmission_status <- NULL
+
+# Possible target leakage
+data$apache_4a_hospital_death_prob <- NULL
+data$apache_4a_icu_death_prob <- NULL
+```
+
+```{r}
+# Remove rows with NA's
+data_new <- na.omit(data)
+print(dim(data_new))
+summary(data_new)
+```
+
+```{r}
+# Combining categories with less than 5% observations into one
+data_new$ethnicity[data_new$ethnicity == "Native American" | data_new$ethnicity== "Asian" | data_new$ethnicity == "Hispanic"] <- "Other/Unknown"
+data_new$icu_admit_source[data_new$icu_admit_source == "Other Hospital" | data_new$icu_admit_source == "Other ICU"] <- "other"
+# Replacing duplicate factor label with one single label
+data_new$apache_2_bodysystem[data_new$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+
+# Factoring
+data_new$ethnicity <- as.factor(data_new$ethnicity)
+data_new$icu_admit_source <- as.factor(data_new$icu_admit_source)
+data_new$gender <- as.factor(data_new$gender)
+data_new$icu_stay_type <- as.factor(data_new$icu_stay_type)
+data_new$apache_2_bodysystem <- as.factor(data_new$apache_2_bodysystem)
+data_new$icu_type <- as.factor(data_new$icu_type)
+data_new$apache_3j_bodysystem <- as.factor(data_new$apache_3j_bodysystem)
+data_new$leukemia <- as.factor(data_new$leukemia)
+data_new$lymphoma <- as.factor(data_new$lymphoma)
+data_new$cirrhosis <- as.factor(data_new$cirrhosis)
+data_new$diabetes_mellitus <- as.factor(data_new$diabetes_mellitus)
+data_new$hepatic_failure <- as.factor(data_new$hepatic_failure)
+data_new$immunosuppression <- as.factor(data_new$immunosuppression)
+data_new$aids <- as.factor(data_new$aids)
+data_new$arf_apache <- as.factor(data_new$arf_apache)
+
+summary(data_new)
+```
+
+#Perform over sampling and under sampling to balance the dataset 
+```{r}
+#install.packages("ROSE")
+library(ROSE)
+
+data_balanced <- ovun.sample(hospital_death ~ .,
+                             data = data_new,
+                             N = nrow(data_new),
+                             seed = 100,
+                             method = "both")$data
+                             
+summary(data_balanced)
+```
+
+```{r}
+# Get the numerical variable names
+numerical_columns <- names(data_balanced)[sapply(data_balanced, is.numeric)]
+```
+
+```{r}
+# Perofrm Manual binarization
+library(caret)
+vars.categorical <- c("ethnicity","icu_admit_source","gender","icu_type","icu_stay_type","apache_2_bodysystem","apache_3j_bodysystem")
+binarizer <- dummyVars(paste("~", paste(vars.categorical, collapse = "+")),
+                        data = data_new, fullRank = TRUE)
+binarized_vars <- data.frame(predict(binarizer, newdata = data_balanced))
+data_balanced <- cbind(data_balanced, binarized_vars)
+data_balanced$ethnicity <- NULL
+data_balanced$icu_admit_source <- NULL
+data_balanced$gender <- NULL
+data_balanced$icu_stay_type <- NULL
+data_balanced$icu_type <- NULL
+data_balanced$apache_2_bodysystem <- NULL
+data_balanced$apache_3j_bodysystem <- NULL
+summary(data_balanced)
+```
+
+```{r}
+library(caret)
+set.seed(100)
+partition <- createDataPartition(data_balanced$hospital_death, p = 0.75, list = FALSE)
+data.train <- data_balanced[partition, ]
+data.test <- data_balanced[-partition, ]
+mean(data.train$hospital_death)
+mean(data.test$hospital_death)
+```
+
+#PCA
+```{r}
+library(dplyr)
+train_data <- data.train
+train_data <- data.train[,numerical_columns]
+train_data$hospital_death <- NULL
+PCA.scaled <- prcomp(train_data, center = TRUE, scale = TRUE)
+
+# Apply PCA transformation for test data
+test_data <- data.test
+test_data <- data.test[,numerical_columns]
+test_data$hospital_death <- NULL
+test_pc <- predict(PCA.scaled, newdata = test_data)
+
+# Proportion of variance explained by each principal component
+variance_prop <- PCA.scaled$sdev^2 / sum(PCA.scaled$sdev^2)
+cum_variance_prop <- cumsum(variance_prop)
+# Select the no. of PC's contributing to 50% cumulative variance
+num_pcs <- sum(cum_variance_prop <= 0.5) + 1
+PCA.selected <- PCA.scaled$x[,1:num_pcs]
+
+summary(PCA.scaled)
+PCA.scaled$rotation[,1:num_pcs]
+```
+
+```{r}
+# Remove the origial numerical variables in train set and replace them with the PC's
+hospital_death <- data.train$hospital_death
+data.train <-  data.train[,!(names(data.test) %in% numerical_columns)]
+data.train <- cbind(data.train, hospital_death)
+data.train <- cbind(data.train, PCA.selected)
+summary(data.train)
+```
+
+```{r}
+# Remove the origial numerical variables in test set and replace them with the PC's
+hospital_death <- data.test$hospital_death
+data.test <- data.test[,!(names(data.test) %in% numerical_columns)]
+data.test <- cbind(data.test, hospital_death)
+data.test <- cbind(data.test, test_pc[,1:num_pcs])
+summary(data.test)
+```
+## Fitting Different models for classifying hospital mortality
+
+# GLM
+# GLM Train
+```{r}
+model.logit.full <- glm(hospital_death ~ ., 
+                         data = data.train,
+                         family = binomial(link = "logit"))
+AIC(model.logit.full)
+summary(model.logit.full)
+```
+
+# GLM Predict
+```{r}
+cutoff <- 0.5
+
+# Generate predicted probabilities on the training set
+predict.logit.train <- predict(model.logit.full, type = "response")
+# Turn predicted probabilities into predicted classes
+class.train <- 1*(predict.logit.train > cutoff) # OR ifelse(pred.train > cutoff, 1, 0)
+confusionMatrix(factor(class.train), factor(data.train$hospital_death), positive = "1")
+
+predict.logit.test <- predict(model.logit.full, newdata = data.test, type = "response")
+class.logit <- 1*(predict.logit.test > cutoff)
+confusionMatrix(factor(class.logit), factor(data.test$hospital_death))
+```
+With 0.5 cutoff, training accuracy is 0.7602 and testing accuracy is 0.7681
+The sensitivity is higher than specificity meaning that the model is better 
+at classifying patients who died.This is the primary objective of this model
+
+# ROC AUC
+```{r}
+library(pROC)
+roc.logit.train <- roc(data.train$hospital_death, predict.logit.train)
+par(pty = "s")  # This improves the appearance of the roc plot
+plot(roc.logit.train)
+auc(roc.logit.train)
+
+roc.logit.test <- roc(data.test$hospital_death, predict.logit.test)
+plot(roc.logit.test)
+auc(roc.logit.test)
+```
+
+# Stepwise AIC
+```{r}
+library(MASS)
+model.logit.null <- glm(hospital_death ~ 1,
+                        data = data.train,
+                        family = binomial(link = "logit"))
+
+model.logit.reduced <- stepAIC(model.logit.full)
+summary(model.logit.reduced)
+```
+
+# GLM Reduced 
+```{r}
+predict.logit.reduced <- predict(model.logit.reduced, newdata = data.test, type = "response")
+roc.logit.reduced <- roc(data.test$hospital_death, predict.logit.reduced)
+auc(roc.logit.reduced)
+```
+
+# Decision Tree
+```{r}
+library(rpart)
+library(rpart.plot)
+
+set.seed(100)
+
+# method = "class" ensures that target is treated as a categorical variable
+model.tree <- rpart(hospital_death ~ .,
+               data = data.train,
+               method = "class",
+               control = rpart.control(minbucket = 5,
+                                       cp = 0.0005,
+                                       maxdepth = 7),
+               parms = list(split = "gini"))
+
+# Print output for the tree
+model.tree
+
+# Plot the tree
+rpart.plot(model.tree, tweak = 2)
+```
+
+```{r}
+# Cost complexity parameter table
+model.tree$cptable
+```
+
+```{r}
+# Prune the tree at CP value yielding lowest cross validation error
+model.tree.pruned <- prune(model.tree, cp = model.tree$cptable[19, "CP"])
+model.tree.pruned
+
+# Plot the tree
+rpart.plot(model.tree.pruned)
+```
+
+```{r}
+# Prune the tree at CP value yielding lowest cross validation error
+model.tree.1sd <- prune(model.tree, cp = model.tree$cptable[15, "CP"])
+model.tree.1sd
+
+# Plot the tree
+rpart.plot(model.tree.1sd)
+```
+
+```{r}
+rpart.plot(model.tree.pruned, type = 0)
+rpart.plot(model.tree.pruned, digits = 4, extra = 4)
+```
+
+```{r}
+# Get the predicted classes at 0.5 cutoff
+predict.tree.class <- predict(model.tree, newdata = data.test, type = "class")
+predict.tree.pruned.class <- predict(model.tree.pruned, newdata = data.test, type = "class")
+predict.tree.1sd.class <- predict(model.tree.pruned, newdata = data.test, type = "class")
+
+# Generate confusion matrix.
+confusionMatrix(predict.tree.class, as.factor(data.test$hospital_death), positive = "1")
+confusionMatrix(predict.tree.pruned.class, as.factor(data.test$hospital_death), positive = "1")
+confusionMatrix(predict.tree.1sd.class, as.factor(data.test$hospital_death), positive = "1")
+```
+
+```{r}
+library(pROC)
+
+# Get the predicted probabilities
+predict.tree.prob <- predict(model.tree, newdata = data.test, type = "prob")[, 2]
+predict.tree.pruned.prob <- predict(model.tree.pruned, newdata = data.test, type = "prob")[, 2]
+predict.tree.1sd.prob <- predict(model.tree.1sd, newdata = data.test, type = "prob")[, 2]
+
+# Calculate AUC 
+roc(data.test$hospital_death, predict.tree.prob)
+roc(data.test$hospital_death, predict.tree.pruned.prob)
+roc(data.test$hospital_death, predict.tree.1sd.prob)
+```
+
+# Random forest
+```{r}
+# Tuning grid for random forest
+ctrl <- trainControl(method = "repeatedcv",
+                     number = 5,
+                     repeats = 3)
+
+rf.grid <- expand.grid(mtry = 1:5)
+rf.grid
+```
+
+```{r}
+# Set up the x and y variables
+target <- factor(data.train$hospital_death)
+predictors <- data.train[, -42]
+
+set.seed(100)
+
+model.rf <- train(y = target,
+                  x = predictors,
+                  method = "rf",
+                  ntree = 50,
+                  max_depth = 7,
+                  importance = TRUE,
+                  trControl = ctrl,
+                  tuneGrid = rf.grid)
+
+model.rf
+```
+
+```{r}
+model.rf
+plot(model.rf)
+```
+
+```{r}
+predict.rf.class <- predict(model.rf, newdata = data.test, type = "raw")
+
+confusionMatrix(predict.rf.class, as.factor(data.test$hospital_death), positive = "1")
+```
+
+```{r}
+# Add the type = "prob" option to return predicted probabilities
+predict.rf.prob <- predict(model.rf, newdata = data.test, type = "prob")[, 2]
+
+roc(data.test$hospital_death, predict.rf.prob)
+```
+# Variable importance plot
+```{r}
+# Plot the variable importance graph
+imp <- varImp(model.rf)
+imp
+ggplot(data=imp, aes(x=Importance, y=Feature, group=1)) +geom_point()+
+theme(text = element_text(size = 7),element_line(size =1))
+```
+# Partial Dependency plot
+```{r}
+# Partial dependency plot with PC2
+library(pdp)
+partial(model.rf, train = data.train, pred.var = "PC2",
+        plot = TRUE, rug = TRUE, smooth = TRUE)
+```
+
+# Boosted tree
+```{r}
+# Set up the tuning grid
+xgb.grid <- expand.grid(max_depth = 7,
+                        min_child_weight = 1,
+                        gamma = 0,
+                        nrounds = c(10, 50, 100),
+                        eta = c(0.01, 0.1),
+                        colsample_bytree = 0.6,
+                        subsample = 0.6)
+xgb.grid
+```
+
+```{r}
+# Set the controls
+ctrl <- trainControl(method = "cv",
+                     number = 5)
+
+set.seed(100)
+model.xgb <- train(as.factor(hospital_death) ~ .,
+                   data = data.train,
+                   method = "xgbTree",
+                   trControl = ctrl,
+                   tuneGrid = xgb.grid)
+
+# View the output
+model.xgb
+ggplot(model.xgb)
+```
+
+```{r}
+pred.xgb.class <- predict(model.xgb, newdata = data.test, type = "raw")
+confusionMatrix(pred.xgb.class, as.factor(data.test$hospital_death), positive = "1")
+
+pred.xgb.prob <- predict(model.xgb, newdata = data.test, type = "prob")[, 2]
+roc(as.numeric(data.test$hospital_death), pred.xgb.prob)
+```
