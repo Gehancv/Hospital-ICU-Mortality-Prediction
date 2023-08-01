@@ -1,0 +1,213 @@
+---
+title: "DM2-GLM-Poisson-Regression"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r}
+rm(list = ls())
+library(readr)
+#read dataset
+data <- read_csv("dataset/training_v2.csv/training_v2.csv")
+dim(data)
+```
+
+#Data Preparation/Cleaning
+```{r}
+#remove the id columns from dataset
+data$encounter_id <- NULL
+data$hospital_id <- NULL
+data$patient_id <- NULL
+data$icu_id <- NULL
+#drop variables which has null values more than 15%
+data <- data[, which(colMeans(is.na(data)) < 0.15)]
+dim(data)
+```
+
+```{r}
+#summary of dataset
+summary(data)
+#remove because the variable only has a constant value of 0
+data$gcs_unable_apache <- NULL
+data$readmission_status <- NULL
+data$apache_4a_hospital_death_prob <- NULL
+data$apache_4a_icu_death_prob <- NULL
+```
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(hospital_death)) + 
+  geom_histogram()
+```
+
+```{r}
+#Remove rows with NA's
+data_new <- na.omit(data)
+print(dim(data_new))
+summary(data_new)
+```
+
+```{r}
+#Combining categories with less than 5% observations into one
+data_new$ethnicity[data_new$ethnicity == "Native American" | data_new$ethnicity== "Asian" | data_new$ethnicity == "Hispanic"] <- "Other/Unknown"
+#data_new$icu_admit_source[data_new$icu_admit_source == "Other Hospital" | data_new$icu_admit_source == "Other ICU"] <- "other"
+#Replacing duplicate factor label with one single label
+data_new$apache_2_bodysystem[data_new$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+
+#Factoring
+data_new$ethnicity <- as.factor(data_new$ethnicity)
+data_new$icu_admit_source <- as.factor(data_new$icu_admit_source)
+data_new$gender <- as.factor(data_new$gender)
+data_new$icu_stay_type <- as.factor(data_new$icu_stay_type)
+data_new$apache_2_bodysystem <- as.factor(data_new$apache_2_bodysystem)
+data_new$icu_type <- as.factor(data_new$icu_type)
+data_new$apache_3j_bodysystem <- as.factor(data_new$apache_3j_bodysystem)
+data_new$leukemia <- as.factor(data_new$leukemia)
+data_new$lyphoma <- as.factor(data_new$lymphoma)
+data_new$cirrhosis <- as.factor(data_new$cirrhosis)
+data_new$diabetes_mellitus <- as.factor(data_new$diabetes_mellitus)
+data_new$hepatic_failure <- as.factor(data_new$hepatic_failure)
+data_new$immunosuppression <- as.factor(data_new$immunosuppression)
+data_new$aids <- as.factor(data_new$aids)
+data_new$arf_apache <- as.factor(data_new$arf_apache)
+#data_new$hospital_death = as.factor(data_new$hospital_death)
+summary(data_new)
+```
+
+
+
+#PCA
+```{r}
+# Load library
+library(FactoMineR)
+
+# Select numeric columns
+data_numeric <- data_new[sapply(data_new, is.numeric)]
+
+# Normalize the data
+data_normalized <- scale(data_numeric)
+```
+
+```{r}
+# Apply PCA
+res.pca <- PCA(data_normalized, scale.unit=TRUE, ncp=15, graph=FALSE)
+```
+
+```{r}
+# Display the result
+print(res.pca)
+
+# Show graph of data points
+plot(res.pca, choix="ind")
+
+# Show raph of variables
+plot(res.pca, choix="var")
+```
+
+```{r}
+# Explore the PCA variance
+print(res.pca$eig)
+```
+
+```{r}
+# Visualize the PCA
+library(factoextra)
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+```
+
+
+```{r}
+#library(caret)
+set.seed(1000)
+splitIndex <- createDataPartition(data_new$h1_heartrate_min, p = .8, list = FALSE, times = 1)
+train_set <- data_new[splitIndex,]
+test_set <- data_new[-splitIndex,]
+
+# Select only numeric variables for PCA
+train_set_numeric <- train_set[sapply(train_set, is.numeric)]
+test_set_numeric <- test_set[sapply(test_set, is.numeric)]
+
+# Normalize the training data
+train_set_normalized <- scale(train_set_numeric)
+
+# Apply PCA to training data
+res.pca <- PCA(train_set_normalized, scale.unit=TRUE, ncp=15, graph=FALSE)
+
+# Choose n PCs as predictors
+n <- 15
+PCs_train <- res.pca$ind$coord[,1:n]
+
+# Convert PCs to data frame
+PCs_train_df <- as.data.frame(PCs_train)
+
+# Normalize test and training set
+test_set_normalized <- scale(test_set_numeric, center = attr(train_set_normalized, "scaled:center"), scale = attr(train_set_normalized, "scaled:scale"))
+```
+
+
+```{r}
+# Project test set onto PCs
+PCs_test <- as.data.frame(test_set_normalized %*% res.pca$var$coord[,1:n])
+```
+
+```{r}
+# Add target variable to the training and test sets
+PCs_train_df$h1_heartrate_min <- train_set$h1_heartrate_min
+PCs_test$h1_heartrate_min <- test_set$h1_heartrate_min
+```
+
+```{r}
+# Create Poisson regression model
+model <- glm(h1_heartrate_min ~ ., data = PCs_train_df, family = poisson(link = "log"))
+
+```
+
+
+```{r}
+# Print the summary of the model
+summary(model)
+```
+
+
+```{r}
+# Make predictions on the test set
+predictions <- predict(model, newdata = PCs_test, type = "response")
+```
+
+```{r}
+# Compare the predictions to the true outcomes
+observed <- test_set$h1_heartrate_min
+comparison <- data.frame(observed = observed, predicted = predictions)
+print(comparison)
+```
+
+
+```{r}
+# Calculate MSE
+mse <- mean((observed - predictions)^2)
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Calculate RMSE
+rmse <- sqrt(mse)
+print(paste("Root Mean Squared Error (RMSE):", rmse))
+
+pearson_chi_sq <- sum((observed - predictions)^2 / predictions)
+print(paste("Pearson Chi-Square:", pearson_chi_sq))
+```
+
+```{r}
+null_model <- glm(h1_heartrate_min ~ 1, data = PCs_train_df, family = poisson(link = "log"))
+logLik_null <- logLik(null_model)
+logLik_model <- logLik(model)
+r_squared_mcfadden <- 1 - as.numeric(logLik_model)/as.numeric(logLik_null)
+print(paste("McFadden's R-squared:", r_squared_mcfadden))
+
+LL_null <- as.numeric(logLik(null_model))
+LL_model <- as.numeric(logLik(model))
+r_squared_nagelkerke <- (1 - exp((2/length(predictions))*(LL_null - LL_model))) / (1 - exp(2 * LL_null / length(predictions)))
+print(paste("Nagelkerke's R-squared:", r_squared_nagelkerke))
+```
