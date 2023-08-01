@@ -1,0 +1,346 @@
+---
+title: "DM2-PCA-biplot-investigation"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r}
+rm(list = ls())
+library(readr)
+#read dataset
+data <- read_csv("training_v2.csv")
+dim(data)
+```
+
+#Data Preparation/Cleaning
+```{r}
+#remove the id columns from dataset
+data$encounter_id <- NULL
+data$hospital_id <- NULL
+data$patient_id <- NULL
+data$icu_id <- NULL
+#drop variables which has null values more than 15%
+data <- data[, which(colMeans(is.na(data)) < 0.15)]
+dim(data)
+```
+
+```{r}
+#summary of dataset
+summary(data)
+#remove because the variable only has a constant value of 0
+data$gcs_unable_apache <- NULL
+data$readmission_status <- NULL
+data$apache_4a_hospital_death_prob <- NULL
+data$apache_4a_icu_death_prob <- NULL
+```
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(hospital_death)) + 
+  geom_histogram()
+```
+
+```{r}
+#Remove rows with NA's
+data_new <- na.omit(data)
+print(dim(data_new))
+summary(data_new)
+```
+
+```{r}
+#Combining categories with less than 5% observations into one
+data_new$ethnicity[data_new$ethnicity == "Native American" | data_new$ethnicity== "Asian" | data_new$ethnicity == "Hispanic"] <- "Other/Unknown"
+#data_new$icu_admit_source[data_new$icu_admit_source == "Other Hospital" | data_new$icu_admit_source == "Other ICU"] <- "other"
+#Replacing duplicate factor label with one single label
+data_new$apache_2_bodysystem[data_new$apache_2_bodysystem == 'Undefined diagnoses'] <- 'Undefined Diagnoses'
+
+#Factoring
+data_new$ethnicity <- as.factor(data_new$ethnicity)
+data_new$icu_admit_source <- as.factor(data_new$icu_admit_source)
+data_new$gender <- as.factor(data_new$gender)
+data_new$icu_stay_type <- as.factor(data_new$icu_stay_type)
+data_new$apache_2_bodysystem <- as.factor(data_new$apache_2_bodysystem)
+data_new$icu_type <- as.factor(data_new$icu_type)
+data_new$apache_3j_bodysystem <- as.factor(data_new$apache_3j_bodysystem)
+data_new$leukemia <- as.factor(data_new$leukemia)
+data_new$lyphoma <- as.factor(data_new$lymphoma)
+data_new$cirrhosis <- as.factor(data_new$cirrhosis)
+data_new$diabetes_mellitus <- as.factor(data_new$diabetes_mellitus)
+data_new$hepatic_failure <- as.factor(data_new$hepatic_failure)
+data_new$immunosuppression <- as.factor(data_new$immunosuppression)
+data_new$aids <- as.factor(data_new$aids)
+data_new$arf_apache <- as.factor(data_new$arf_apache)
+#data_new$hospital_death = as.factor(data_new$hospital_death)
+summary(data_new)
+```
+
+#Perform oversampling to balance the dataset 
+```{r}
+#install.packages("ROSE")
+library(ROSE)
+
+#data_balanced <- ROSE(hospital_death ~ ., data = data_new, seed = 1000)$data
+data_balanced <- ovun.sample(hospital_death ~ .,
+                             data = data_new,
+                             N = nrow(data_new),
+                             seed = 1000,
+                             method = "both")$data
+                             
+summary(data_balanced)
+```
+
+# PCA Biplot, intial PCA and loadings -MO
+```{r}
+
+library(dplyr)
+data_pca <- data_balanced
+data_pca <- select_if(data_pca, is.numeric)
+
+
+data_pca$hospital_death <- NULL
+PCA <- prcomp(data_pca, center=TRUE, scale. = TRUE)
+
+# Sort results based on PC1 (first column) in ascending order
+PCA$rotation <- PCA$rotation[order(PCA$rotation[, 1]), ]
+
+# Display results for the first two principal components
+PCA$rotation[, 1:2]
+
+# Sort results based on PC2 (second column) in ascending order
+PCA$rotation <- PCA$rotation[order(PCA$rotation[, 2]), ]
+
+# Display results for the first two principal components
+PCA$rotation[, 1:2]
+```
+
+# prep for view -MO
+```{R}
+# set above into a table
+PCA_rotation <- read.table(text = "PC1          PC2
+h1_mbp_noninvasive_min      -2.272161e-01 -0.034004790
+h1_mbp_min                  -2.271627e-01 -0.033892130
+h1_sysbp_noninvasive_min    -2.155549e-01 -0.047903059
+h1_sysbp_min                -2.151376e-01 -0.048902345
+h1_diasbp_noninvasive_min   -2.110806e-01 -0.029536258
+h1_diasbp_min               -2.108560e-01 -0.028399677
+h1_mbp_noninvasive_max      -2.103472e-01  0.137194174
+h1_mbp_max                  -2.095512e-01  0.138568370
+h1_sysbp_noninvasive_max    -2.019668e-01  0.111721757
+h1_sysbp_max                -2.015528e-01  0.110573129
+d1_mbp_min                  -1.892799e-01 -0.159669148
+d1_mbp_noninvasive_min      -1.892575e-01 -0.159907427
+d1_sysbp_noninvasive_min    -1.837676e-01 -0.167355916
+d1_sysbp_min                -1.837321e-01 -0.167549618
+h1_diasbp_noninvasive_max   -1.815893e-01  0.163498322
+h1_diasbp_max               -1.807889e-01  0.163574902
+d1_diasbp_min               -1.783949e-01 -0.149379405
+d1_diasbp_noninvasive_min   -1.782589e-01 -0.149842415
+d1_sysbp_noninvasive_max    -1.634758e-01  0.170161642
+d1_sysbp_max                -1.634615e-01  0.169951185
+d1_mbp_noninvasive_max      -1.607105e-01  0.210241745
+d1_mbp_max                  -1.604116e-01  0.210265588
+map_apache                  -1.369629e-01  0.088759061
+d1_diasbp_max               -1.306288e-01  0.224218024
+d1_diasbp_noninvasive_max   -1.306156e-01  0.224519777
+d1_hemaglobin_min           -1.095219e-01 -0.006444698
+d1_hematocrit_min           -1.044549e-01  0.001014823
+d1_calcium_min              -1.023703e-01 -0.096840892
+d1_hemaglobin_max           -9.323971e-02  0.031046936
+d1_hematocrit_max           -8.989695e-02  0.038862784
+d1_calcium_max              -8.825140e-02 -0.043393197
+d1_spo2_min                 -6.170293e-02 -0.143896903
+d1_platelets_min            -4.290331e-02 -0.022893040
+h1_spo2_min                 -4.279932e-02 -0.105521619
+gcs_verbal_apache           -3.702390e-02 -0.181892947
+gcs_motor_apache            -3.175163e-02 -0.180468388
+gcs_eyes_apache             -3.158434e-02 -0.184349443
+d1_platelets_max            -3.084889e-02  0.004271328
+d1_temp_min                 -2.947639e-02 -0.112953428
+apache_2_diagnosis          -2.896623e-02 -0.087518320
+temp_apache                 -2.520019e-02 -0.083909929
+height                      -2.337329e-02 -0.002626387
+weight                      -2.210372e-02  0.022228865
+d1_glucose_min              -1.539222e-02  0.027741190
+h1_spo2_max                 -1.388278e-02 -0.027158633
+d1_sodium_min               -1.272149e-02  0.023299702
+bmi                         -1.156606e-02  0.024176761
+d1_resprate_min             -8.445898e-03 -0.029807510
+elective_surgery             2.849049e-05 -0.095589759
+apache_post_operative        9.056545e-04 -0.091794862
+lymphoma                     5.290620e-03  0.003885919
+resprate_apache              5.653509e-03  0.075896991
+glucose_apache               5.948471e-03  0.099861636
+d1_sodium_max                6.174068e-03  0.081764990
+apache_3j_diagnosis          8.348943e-03 -0.092685411
+d1_temp_max                  9.916260e-03  0.038854893
+d1_spo2_max                  1.013326e-02  0.015024598
+d1_heartrate_min             1.021821e-02 -0.014025704
+solid_tumor_with_metastasis  1.150804e-02  0.003481843
+h1_resprate_min              1.316370e-02  0.059542752
+d1_glucose_max               1.650624e-02  0.112443541
+h1_resprate_max              2.028956e-02  0.135703393
+d1_resprate_max              2.425838e-02  0.129269882
+pre_icu_los_days             2.515240e-02  0.003691603
+h1_heartrate_min             2.703050e-02  0.099128218
+d1_potassium_min             3.214345e-02 -0.006058285
+h1_heartrate_max             3.404007e-02  0.158953387
+heart_rate_apache            3.607979e-02  0.135474021
+age                          3.678042e-02  0.008139273
+d1_wbc_min                   3.692917e-02  0.077815276
+intubated_apache             4.158519e-02  0.139661712
+ventilated_apache            4.884172e-02  0.168623998
+d1_wbc_max                   4.957457e-02  0.100547644
+d1_heartrate_max             4.992530e-02  0.189244997
+d1_potassium_max             5.799947e-02  0.084373328
+d1_creatinine_min            5.946960e-02  0.076288601
+d1_creatinine_max            6.329757e-02  0.091840521
+d1_bun_min                   8.679778e-02  0.077723952
+d1_bun_max                   8.953100e-02  0.091433096", header = TRUE)
+
+```
+
+# initial plot -MO
+```{R}
+# Load the required library
+library(ggplot2)
+
+# Create a biplot of the first two principal components
+biplot(PCA, scale = 0)
+
+```
+# PCA-biplot display -MO
+# shown without observations, and expanded, for clarity -MO
+```{r}
+# Load the required library
+library(ggplot2)
+
+# Subset and label only top variables (you can adjust 'n' to show more or fewer variables)
+n <- 900
+top_vars <- head(PCA_rotation[order(-abs(PCA_rotation$PC1)), ], n)
+
+# Create a biplot using ggplot2
+ggplot(data = PCA_rotation, aes(x = PC1, y = PC2)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  geom_segment(aes(xend = 0, yend = 0, x = PC1, y = PC2),
+               arrow = arrow(length = unit(0.3, "cm")), color = "blue") +
+  geom_text(data = top_vars, aes(label = rownames(top_vars)), vjust = 1, color = "red", size = 3) +
+  xlim(min(PCA_rotation$PC1) * 1.1, max(PCA_rotation$PC1) * 1.1) +
+  ylim(min(PCA_rotation$PC2) * 1.1, max(PCA_rotation$PC2) * 1.1) +
+  xlab("PC1") +
+  ylab("PC2") +
+  theme_minimal()
+
+```
+
+# Show the observations on the Bi-plot -MO
+```{R}
+# Load the required libraries
+library(ggbiplot)
+library(devtools)
+
+# Create a biplot of the first two principal components
+ggbiplot(PCA, scale = 0, obs.scale = 0, varname.size = 3, varname.adjust = 0.7)
+
+```
+
+# set up for pca bi-plot with data overlay -MO
+```{R}
+# Load required libraries
+library(stats)
+library(dplyr)
+
+# this is for the "unbalanced" and original data that has not been oversampled
+data_pca_un <- data_new
+data_pca_un_n <- select_if(data_pca_un, is.numeric)
+
+# take out the hospital_death for PCA
+data_pca_un_n$hospital_death <- NULL
+PCA_orig <- prcomp(data_pca_un_n, center=TRUE, scale. = TRUE)
+
+# set x an y
+X_pca_un <- as.data.frame(PCA_orig$x)  # Convert the matrix to a data frame
+y_un <- data_pca_un$hospital_death
+
+
+# this is for the "balanced" data 
+
+# Extract the PCA-transformed features
+X_pca <- as.data.frame(PCA$x)  # Convert the matrix to a data frame
+
+# Display the first few rows of the PCA-transformed features
+head(X_pca)
+
+# Replace "target_variable_column_name" with the actual name of your target variable column
+y <- data_balanced$hospital_death
+
+# Display the first few elements of the target variable
+head(y)
+
+```
+
+# PC biplot with overlay of deaths and counts (after balance and oversampling) -MO
+```{R}
+# Load required libraries
+library(stats)
+library(ggplot2)
+
+# 'X_pca' contains the PCA-transformed features, 'y' contains the target variable
+# 'X_pca' should have dimensions (n_samples, n_components), where n_components is typically 2 for a biplot
+
+# Combine PCA-transformed features and target variable into a data.frame
+pca_data_df2 <- data.frame(X_pca, hospital_death = factor(y))
+
+# Calculate the counts for each class
+counts <- table(pca_data_df2$hospital_death)
+
+# Create a bi-plot using ggplot2
+biplot <- ggplot(pca_data_df2, aes(x = PC1, y = PC2, color = hospital_death)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "Principal Component 1", y = "Principal Component 2") +
+  scale_color_manual(
+    values = c("blue", "red"),
+    labels = c(
+      paste("hospital_death = 0 (", counts[1], ")", sep = ""),
+      paste("hospital_death = 1 (", counts[2], ")", sep = "")
+    )
+  ) +
+  theme_minimal() +
+  ggtitle("PCA Bi-Plot with hospital_death Overlay - after Balancing")
+
+# Show the bi-plot
+print(biplot)
+
+```
+# PC biplot with overlay of deaths and counts (original, unbalanced data) -MO
+```{R}
+# Load required libraries
+library(stats)
+library(ggplot2)
+
+# 'X_pca_un' contains the PCA-transformed features, 'y_un' contains the target variable
+# 'X_pca_un' should have dimensions (n_samples, n_components), where n_components is typically 2 for a biplot
+
+# Combine PCA-transformed features and target variable into a data.frame
+pca_data_df3 <- data.frame(X_pca_un, hospital_death = factor(y_un))
+
+# Calculate the counts for each class
+counts <- table(pca_data_df3$hospital_death)
+
+# Create a bi-plot using ggplot2
+biplot <- ggplot(pca_data_df2, aes(x = PC1, y = PC2, color = hospital_death)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "Principal Component 1", y = "Principal Component 2") +
+  scale_color_manual(
+    values = c("blue", "red"),
+    labels = c(
+      paste("hospital_death = 0 (", counts[1], ")", sep = ""),
+      paste("hospital_death = 1 (", counts[2], ")", sep = "")
+    )
+  ) +
+  theme_minimal() +
+  ggtitle("PCA Bi-Plot with hospital_death Overlay - unbalanced/original")
+
+# Show the bi-plot
+print(biplot)
+```
